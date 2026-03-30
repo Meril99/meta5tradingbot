@@ -1,0 +1,16 @@
+build/
+*.o
+*.so
+*.a
+.env
+tests/test_parser
+tests/test_trade_events
+*.heartbeat
+last_signal.json
+__pycache__/
+.vscode/
+.idea/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile

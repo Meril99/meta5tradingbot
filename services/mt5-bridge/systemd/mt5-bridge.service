@@ -1,0 +1,16 @@
+[Unit]
+Description=MT5 Bridge — receives parsed signals for logging and MT5 EA
+After=network.target signal-parser.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/mt5-bridge
+Restart=always
+RestartSec=5
+EnvironmentFile=/etc/telegram-mt5-bot/.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mt5-bridge
+
+[Install]
+WantedBy=multi-user.target

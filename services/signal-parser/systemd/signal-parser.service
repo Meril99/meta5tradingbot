@@ -1,0 +1,16 @@
+[Unit]
+Description=Signal Parser — parses Telegram messages into trading signals
+After=network.target tdlib-listener.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/signal-parser
+Restart=always
+RestartSec=5
+EnvironmentFile=/etc/telegram-mt5-bot/.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=signal-parser
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Telegram TDLib Listener — forwards channel messages to signal-parser
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tdlib-listener
+Restart=always
+RestartSec=5
+EnvironmentFile=/etc/telegram-mt5-bot/.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tdlib-listener
+WorkingDirectory=/var/lib/telegram-mt5-bot
+
+# Watchdog: if heartbeat file is stale, systemd restarts the service.
+WatchdogSec=90
+
+[Install]
+WantedBy=multi-user.target

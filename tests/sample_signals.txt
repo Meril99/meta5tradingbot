@@ -1,0 +1,123 @@
+# Sample trading signals for testing the parser.
+# Each block is separated by a blank line.
+# Lines starting with # are comments and should be ignored by tests.
+
+# ── Format A tests ───────────────────────────────────────────────────────────
+
+# 1. Standard Format A — XAUUSD BUY
+XAUUSD BUY @ 2310.50
+SL: 2300.00
+TP: 2330.00
+
+# 2. Format A — EURUSD SELL
+EURUSD SELL @ 1.08200
+SL: 1.08700
+TP: 1.07500
+
+# 3. Format A — no spaces around @
+GBPUSD BUY @1.27500
+SL: 1.27000
+TP: 1.28000
+
+# ── Format B tests ───────────────────────────────────────────────────────────
+
+# 4. Standard Format B with emoji and two TPs
+🟢 EURUSD BUY NOW
+Entry: 1.08500
+Stop Loss: 1.08000
+Take Profit 1: 1.09000
+Take Profit 2: 1.09500
+
+# 5. Format B — SELL with emoji
+🔴 GBPJPY SELL NOW
+Entry: 192.500
+Stop Loss: 193.000
+Take Profit 1: 191.500
+Take Profit 2: 191.000
+
+# 6. Format B — single TP only
+🟢 AUDUSD BUY NOW
+Entry: 0.66500
+Stop Loss: 0.66000
+Take Profit 1: 0.67200
+
+# ── Format C tests ───────────────────────────────────────────────────────────
+
+# 7. Standard Format C
+SELL GBPUSD
+Price: 1.2650
+SL 1.2700 TP 1.2580
+
+# 8. Format C — BUY
+BUY USDJPY
+Price: 149.800
+SL 149.200 TP 150.800
+
+# 9. Format C — XAUUSD
+SELL XAUUSD
+Price: 2350.00
+SL 2360.00 TP 2330.00
+
+# ── Format D tests ───────────────────────────────────────────────────────────
+
+# 10. Standard Format D — SELL LIMIT
+[SIGNAL] USDJPY SELL LIMIT 149.50
+SL: 150.20 | TP: 148.00
+
+# 11. Format D — BUY LIMIT
+[SIGNAL] EURUSD BUY LIMIT 1.07800
+SL: 1.07200 | TP: 1.08500
+
+# 12. Format D — BUY STOP
+[SIGNAL] XAUUSD BUY STOP 2380.00
+SL: 2370.00 | TP: 2400.00
+
+# ── Edge cases ───────────────────────────────────────────────────────────────
+
+# 13. Lowercase (should still parse — case insensitive)
+xauusd buy @ 2310.50
+sl: 2300.00
+tp: 2330.00
+
+# 14. Extra whitespace
+  EURUSD   BUY   @  1.08500
+  SL:  1.08000
+  TP:  1.09000
+
+# 15. Missing TP (valid — TP is optional for risk calc)
+GBPUSD BUY @ 1.27500
+SL: 1.27000
+
+# ── Invalid / garbage (should NOT parse) ─────────────────────────────────────
+
+# 16. Random text
+Good morning everyone! Markets are opening soon.
+
+# 17. Numbers without structure
+2310 2300 2330 BUY
+
+# 18. Empty message
+
+
+# 19. Partial signal — no side
+XAUUSD @ 2310.50
+SL: 2300.00
+
+# 20. Just an emoji
+🔥🔥🔥
+
+# 21. Format A with NASDAQ
+NASDAQ BUY @ 18500.50
+SL: 18450.00
+TP: 18600.00
+
+# 22. Format B with USOIL
+🟢 USOIL BUY NOW
+Entry: 78.50
+Stop Loss: 77.80
+Take Profit 1: 79.50
+Take Profit 2: 80.00
+
+# 23. Format D with US30
+[SIGNAL] US30 SELL LIMIT 39200.00
+SL: 39350.00 | TP: 38900.00
