@@ -7,6 +7,9 @@ tests/test_parser
 tests/test_trade_events
 *.heartbeat
 last_signal.json
+trade_journal.csv
+telegram_session.session
+tdlib_session/
 __pycache__/
 .vscode/
 .idea/

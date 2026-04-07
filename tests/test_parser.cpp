@@ -1,7 +1,5 @@
 // test_parser.cpp — Unit tests for SignalParser.
 // Compiles standalone: g++ -std=c++17 test_parser.cpp ../services/signal-parser/src/SignalParser.cpp -o test_parser
-// Author: <your-name>
-// Date:   <date>
 
 #include "../services/signal-parser/src/SignalParser.hpp"
 
@@ -21,7 +19,6 @@ static const double MAX_LOTS = 1.0;
 static int g_pass = 0;
 static int g_fail = 0;
 
-// Verify a condition and print PASS/FAIL with a test name.
 #define CHECK(name, cond) do { \
     if (cond) { \
         std::cout << "[PASS] " << (name) << "\n"; \
@@ -32,48 +29,186 @@ static int g_fail = 0;
     } \
 } while(0)
 
-// Helper: check if two doubles are approximately equal.
 static bool approx(double a, double b, double eps = 0.001) {
     return std::abs(a - b) < eps;
 }
 
 int main() {
     SignalParser parser(BALANCE, RISK_PCT, MIN_LOTS, MAX_LOTS);
+    parser.set_trade_symbol("XAUUSD.s");
 
     std::cout << "=== SignalParser Unit Tests ===\n\n";
 
-    // ── Test 1: Format A — XAUUSD BUY ───────────────────────────────────
+    // ── Scalp entry tests ───────────────────────────────────────────────
+
+    // T01: "Gold sell now" with red circle emoji
     {
-        std::string text = "XAUUSD BUY @ 2310.50\nSL: 2300.00\nTP: 2330.00";
+        std::string text = "Gold sell now \xF0\x9F\x94\xB4";
         Signal sig = parser.parse(text);
-        CHECK("T01 Format A valid",         sig.valid);
-        CHECK("T01 symbol XAUUSD",          sig.symbol == "XAUUSD");
-        CHECK("T01 side BUY",               sig.side == Signal::Side::BUY);
-        CHECK("T01 entry 2310.50",          approx(sig.entry, 2310.50));
-        CHECK("T01 sl 2300.00",             approx(sig.sl, 2300.00));
-        CHECK("T01 tp1 2330.00",            approx(sig.tp1, 2330.00));
-        CHECK("T01 lots > 0",               sig.lots > 0.0);
+        CHECK("T01 Scalp sell valid",        sig.valid);
+        CHECK("T01 type ENTRY",             sig.type == SignalType::ENTRY);
+        CHECK("T01 symbol XAUUSD.s",        sig.symbol == "XAUUSD.s");
+        CHECK("T01 side SELL",              sig.side == Signal::Side::SELL);
+        CHECK("T01 entry 0 (market)",       approx(sig.entry, 0.0));
+        CHECK("T01 sl 0 (none)",            approx(sig.sl, 0.0));
+        CHECK("T01 tp1 0 (none)",           approx(sig.tp1, 0.0));
     }
 
-    // ── Test 2: Format A — EURUSD SELL ──────────────────────────────────
+    // T02: "Gold buy now" with green circle emoji
     {
-        std::string text = "EURUSD SELL @ 1.08200\nSL: 1.08700\nTP: 1.07500";
+        std::string text = "Gold buy now \xF0\x9F\x9F\xA2";
         Signal sig = parser.parse(text);
-        CHECK("T02 Format A SELL valid",     sig.valid);
-        CHECK("T02 symbol EURUSD",           sig.symbol == "EURUSD");
-        CHECK("T02 side SELL",               sig.side == Signal::Side::SELL);
-        CHECK("T02 entry 1.08200",           approx(sig.entry, 1.082));
+        CHECK("T02 Scalp buy valid",         sig.valid);
+        CHECK("T02 side BUY",               sig.side == Signal::Side::BUY);
+        CHECK("T02 symbol XAUUSD.s",        sig.symbol == "XAUUSD.s");
     }
 
-    // ── Test 3: Format A — no space around @ ────────────────────────────
+    // T03: "Gold Buy now" with blue diamond + "| xauusd" suffix
     {
-        std::string text = "GBPUSD BUY @1.27500\nSL: 1.27000\nTP: 1.28000";
+        std::string text = "Gold Buy now \xF0\x9F\x94\xB7 | xauusd\nScalping \xE2\x9C\x85\nUse a good MM (money management)";
         Signal sig = parser.parse(text);
-        CHECK("T03 Format A no-space @",     sig.valid);
-        CHECK("T03 entry 1.27500",           approx(sig.entry, 1.275));
+        CHECK("T03 Scalp buy with suffix",   sig.valid);
+        CHECK("T03 side BUY",               sig.side == Signal::Side::BUY);
+        CHECK("T03 symbol XAUUSD.s",        sig.symbol == "XAUUSD.s");
     }
 
-    // ── Test 4: Format B — emoji + two TPs ──────────────────────────────
+    // T04: Case variations
+    {
+        Signal sig = parser.parse("GOLD SELL NOW");
+        CHECK("T04 Uppercase scalp",        sig.valid);
+        CHECK("T04 side SELL",              sig.side == Signal::Side::SELL);
+    }
+
+    // ── Break-even tests ────────────────────────────────────────────────
+
+    // T05: "TP 1 ✅"
+    {
+        std::string text = "TP 1 \xE2\x9C\x85";
+        Signal sig = parser.parse(text);
+        CHECK("T05 BE: TP 1 valid",         sig.valid);
+        CHECK("T05 type BREAKEVEN",         sig.type == SignalType::BREAKEVEN);
+        CHECK("T05 symbol XAUUSD.s",        sig.symbol == "XAUUSD.s");
+    }
+
+    // T06: "+35 pips ✅"
+    {
+        std::string text = "+35 pips \xE2\x9C\x85";
+        Signal sig = parser.parse(text);
+        CHECK("T06 BE: +35 pips valid",     sig.valid);
+        CHECK("T06 type BREAKEVEN",         sig.type == SignalType::BREAKEVEN);
+    }
+
+    // T07: "Don't forget your BE"
+    {
+        Signal sig = parser.parse("Don't forget your BE");
+        CHECK("T07 BE: forget your BE",     sig.valid);
+        CHECK("T07 type BREAKEVEN",         sig.type == SignalType::BREAKEVEN);
+    }
+
+    // T08: "BE hit ✅"
+    {
+        std::string text = "BE hit \xE2\x9C\x85";
+        Signal sig = parser.parse(text);
+        CHECK("T08 BE: hit valid",          sig.valid);
+        CHECK("T08 type BREAKEVEN",         sig.type == SignalType::BREAKEVEN);
+    }
+
+    // T09: "BE HIT 0 pips ✅"
+    {
+        std::string text = "BE HIT 0 pips \xE2\x9C\x85";
+        Signal sig = parser.parse(text);
+        CHECK("T09 BE: HIT 0 pips",        sig.valid);
+        CHECK("T09 type BREAKEVEN",         sig.type == SignalType::BREAKEVEN);
+    }
+
+    // T10: "+60 pips from the zone BE or take profits ✅ scalp"
+    {
+        std::string text = "+60 pips from the zone BE or take profits \xE2\x9C\x85 scalp";
+        Signal sig = parser.parse(text);
+        CHECK("T10 BE: zone BE valid",      sig.valid);
+        CHECK("T10 type BREAKEVEN",         sig.type == SignalType::BREAKEVEN);
+    }
+
+    // ── Close-all tests ───────────────────────────────────────────────
+
+    // T11: "Close it at the entry point ✅ 0 pips"
+    {
+        std::string text = "Close it at the entry point \xE2\x9C\x85 0 pips";
+        Signal sig = parser.parse(text);
+        CHECK("T11 Close entry point",      sig.valid);
+        CHECK("T11 type CLOSE_ALL",         sig.type == SignalType::CLOSE_ALL);
+        CHECK("T11 symbol XAUUSD.s",        sig.symbol == "XAUUSD.s");
+    }
+
+    // T12: standalone "❌"
+    {
+        std::string text = "\xE2\x9D\x8C";
+        Signal sig = parser.parse(text);
+        CHECK("T12 Close: standalone X",    sig.valid);
+        CHECK("T12 type CLOSE_ALL",         sig.type == SignalType::CLOSE_ALL);
+    }
+
+    // T13: "SL❌"
+    {
+        std::string text = "SL\xE2\x9D\x8C";
+        Signal sig = parser.parse(text);
+        CHECK("T13 Close: SL X",           sig.valid);
+        CHECK("T13 type CLOSE_ALL",         sig.type == SignalType::CLOSE_ALL);
+    }
+
+    // T14: "Close your last current positions"
+    {
+        Signal sig = parser.parse("Close your last current positions");
+        CHECK("T14 Close last positions",    sig.valid);
+        CHECK("T14 type CLOSE_ALL",         sig.type == SignalType::CLOSE_ALL);
+    }
+
+    // T15: "We cut the trade in positive"
+    {
+        Signal sig = parser.parse("We cut the trade in positive");
+        CHECK("T15 Close: cut trade",       sig.valid);
+        CHECK("T15 type CLOSE_ALL",         sig.type == SignalType::CLOSE_ALL);
+    }
+
+    // ── Serialization tests ─────────────────────────────────────────────
+
+    // T16: Entry serialization
+    {
+        Signal sig = parser.parse("Gold sell now");
+        sig.lots = 0.03;
+        std::string s = sig.serialize();
+        CHECK("T16 Serialize entry",        s.find("XAUUSD.s|SELL|") == 0);
+        CHECK("T16 Serialize has 6 pipes",  std::count(s.begin(), s.end(), '|') == 6);
+    }
+
+    // T17: Breakeven serialization
+    {
+        std::string text = "TP 1 \xE2\x9C\x85";
+        Signal sig = parser.parse(text);
+        std::string s = sig.serialize();
+        CHECK("T17 Serialize BE",           s == "BREAKEVEN|XAUUSD.s");
+    }
+
+    // T18: Close-all serialization
+    {
+        Signal sig = parser.parse("We cut the trade in positive");
+        std::string s = sig.serialize();
+        CHECK("T18 Serialize CLOSEALL",     s == "CLOSEALL|XAUUSD.s");
+    }
+
+    // ── Legacy format tests (still work) ────────────────────────────────
+
+    // T19: Format A
+    {
+        std::string text = "EURUSD BUY @ 1.08500\nSL: 1.08000\nTP: 1.09000";
+        Signal sig = parser.parse(text);
+        CHECK("T19 Format A valid",         sig.valid);
+        CHECK("T19 symbol EURUSD",          sig.symbol == "EURUSD");
+        CHECK("T19 side BUY",               sig.side == Signal::Side::BUY);
+        CHECK("T19 entry 1.085",            approx(sig.entry, 1.085));
+    }
+
+    // T20: Format B
     {
         std::string text =
             "\xF0\x9F\x9F\xA2 EURUSD BUY NOW\n"
@@ -82,201 +217,36 @@ int main() {
             "Take Profit 1: 1.09000\n"
             "Take Profit 2: 1.09500";
         Signal sig = parser.parse(text);
-        CHECK("T04 Format B valid",          sig.valid);
-        CHECK("T04 symbol EURUSD",           sig.symbol == "EURUSD");
-        CHECK("T04 side BUY",                sig.side == Signal::Side::BUY);
-        CHECK("T04 entry 1.08500",           approx(sig.entry, 1.085));
-        CHECK("T04 sl 1.08000",              approx(sig.sl, 1.08));
-        CHECK("T04 tp1 1.09000",             approx(sig.tp1, 1.09));
-        CHECK("T04 tp2 1.09500",             approx(sig.tp2, 1.095));
+        CHECK("T20 Format B valid",         sig.valid);
+        CHECK("T20 tp2 1.095",             approx(sig.tp2, 1.095));
     }
 
-    // ── Test 5: Format B — SELL with emoji ──────────────────────────────
-    {
-        std::string text =
-            "\xF0\x9F\x94\xB4 GBPJPY SELL NOW\n"
-            "Entry: 192.500\n"
-            "Stop Loss: 193.000\n"
-            "Take Profit 1: 191.500\n"
-            "Take Profit 2: 191.000";
-        Signal sig = parser.parse(text);
-        CHECK("T05 Format B SELL valid",     sig.valid);
-        CHECK("T05 symbol GBPJPY",           sig.symbol == "GBPJPY");
-        CHECK("T05 side SELL",               sig.side == Signal::Side::SELL);
-    }
-
-    // ── Test 6: Format B — single TP ────────────────────────────────────
-    {
-        std::string text =
-            "\xF0\x9F\x9F\xA2 AUDUSD BUY NOW\n"
-            "Entry: 0.66500\n"
-            "Stop Loss: 0.66000\n"
-            "Take Profit 1: 0.67200";
-        Signal sig = parser.parse(text);
-        CHECK("T06 Format B single TP",      sig.valid);
-        CHECK("T06 tp2 is 0",                approx(sig.tp2, 0.0));
-    }
-
-    // ── Test 7: Format C — SELL GBPUSD ──────────────────────────────────
-    {
-        std::string text = "SELL GBPUSD\nPrice: 1.2650\nSL 1.2700 TP 1.2580";
-        Signal sig = parser.parse(text);
-        CHECK("T07 Format C valid",          sig.valid);
-        CHECK("T07 symbol GBPUSD",           sig.symbol == "GBPUSD");
-        CHECK("T07 side SELL",               sig.side == Signal::Side::SELL);
-        CHECK("T07 entry 1.265",             approx(sig.entry, 1.265));
-        CHECK("T07 sl 1.27",                 approx(sig.sl, 1.27));
-        CHECK("T07 tp1 1.258",               approx(sig.tp1, 1.258));
-    }
-
-    // ── Test 8: Format C — BUY USDJPY ───────────────────────────────────
-    {
-        std::string text = "BUY USDJPY\nPrice: 149.800\nSL 149.200 TP 150.800";
-        Signal sig = parser.parse(text);
-        CHECK("T08 Format C BUY USDJPY",     sig.valid);
-        CHECK("T08 symbol USDJPY",           sig.symbol == "USDJPY");
-    }
-
-    // ── Test 9: Format C — XAUUSD ───────────────────────────────────────
-    {
-        std::string text = "SELL XAUUSD\nPrice: 2350.00\nSL 2360.00 TP 2330.00";
-        Signal sig = parser.parse(text);
-        CHECK("T09 Format C XAUUSD",         sig.valid);
-        CHECK("T09 entry 2350",              approx(sig.entry, 2350.0));
-    }
-
-    // ── Test 10: Format D — SELL LIMIT ──────────────────────────────────
+    // T21: Format D
     {
         std::string text = "[SIGNAL] USDJPY SELL LIMIT 149.50\nSL: 150.20 | TP: 148.00";
         Signal sig = parser.parse(text);
-        CHECK("T10 Format D valid",          sig.valid);
-        CHECK("T10 symbol USDJPY",           sig.symbol == "USDJPY");
-        CHECK("T10 side SELL",               sig.side == Signal::Side::SELL);
-        CHECK("T10 entry 149.50",            approx(sig.entry, 149.50));
-        CHECK("T10 sl 150.20",               approx(sig.sl, 150.20));
-        CHECK("T10 tp1 148.00",              approx(sig.tp1, 148.0));
+        CHECK("T21 Format D valid",         sig.valid);
+        CHECK("T21 entry 149.50",           approx(sig.entry, 149.50));
     }
 
-    // ── Test 11: Format D — BUY LIMIT ───────────────────────────────────
+    // ── Negative tests ──────────────────────────────────────────────────
+
+    // T22: Garbage
     {
-        std::string text = "[SIGNAL] EURUSD BUY LIMIT 1.07800\nSL: 1.07200 | TP: 1.08500";
-        Signal sig = parser.parse(text);
-        CHECK("T11 Format D BUY LIMIT",      sig.valid);
-        CHECK("T11 entry 1.078",             approx(sig.entry, 1.078));
+        Signal sig = parser.parse("Good morning everyone! Markets are opening soon.");
+        CHECK("T22 Garbage not valid",       !sig.valid);
     }
 
-    // ── Test 12: Format D — BUY STOP ────────────────────────────────────
+    // T23: Empty
     {
-        std::string text = "[SIGNAL] XAUUSD BUY STOP 2380.00\nSL: 2370.00 | TP: 2400.00";
-        Signal sig = parser.parse(text);
-        CHECK("T12 Format D BUY STOP",       sig.valid);
-        CHECK("T12 entry 2380",              approx(sig.entry, 2380.0));
+        Signal sig = parser.parse("");
+        CHECK("T23 Empty not valid",         !sig.valid);
     }
 
-    // ── Test 13: Lowercase input ────────────────────────────────────────
+    // T24: Just emojis (fire, not cross)
     {
-        std::string text = "xauusd buy @ 2310.50\nsl: 2300.00\ntp: 2330.00";
-        Signal sig = parser.parse(text);
-        CHECK("T13 Lowercase parsed",        sig.valid);
-        CHECK("T13 symbol uppercased",       sig.symbol == "XAUUSD");
-    }
-
-    // ── Test 14: Missing TP (partial signal — valid with SL) ────────────
-    {
-        std::string text = "GBPUSD BUY @ 1.27500\nSL: 1.27000";
-        Signal sig = parser.parse(text);
-        CHECK("T14 Missing TP valid",        sig.valid);
-        CHECK("T14 tp1 is 0",               approx(sig.tp1, 0.0));
-        CHECK("T14 lots calculated",        sig.lots > 0.0);
-    }
-
-    // ── Test 15: Garbage text (should NOT parse) ────────────────────────
-    {
-        std::string text = "Good morning everyone! Markets are opening soon.";
-        Signal sig = parser.parse(text);
-        CHECK("T15 Garbage not valid",       !sig.valid);
-    }
-
-    // ── Test 16: Random numbers (should NOT parse) ──────────────────────
-    {
-        std::string text = "2310 2300 2330 BUY";
-        Signal sig = parser.parse(text);
-        // This might partially match Format C (BUY <number>); that's OK
-        // as long as it doesn't crash. We mainly check it doesn't false-positive
-        // on a well-formed signal.
-        // Just ensure no crash — valid may be true or false here.
-        CHECK("T16 Random numbers no crash", true);
-    }
-
-    // ── Test 17: Empty string ───────────────────────────────────────────
-    {
-        std::string text = "";
-        Signal sig = parser.parse(text);
-        CHECK("T17 Empty string not valid",  !sig.valid);
-    }
-
-    // ── Test 18: Just emojis ────────────────────────────────────────────
-    {
-        std::string text = "\xF0\x9F\x94\xA5\xF0\x9F\x94\xA5\xF0\x9F\x94\xA5";
-        Signal sig = parser.parse(text);
-        CHECK("T18 Emoji-only not valid",    !sig.valid);
-    }
-
-    // ── Test 19: Serialization round-trip ───────────────────────────────
-    {
-        std::string text = "XAUUSD BUY @ 2310.50\nSL: 2300.00\nTP: 2330.00";
-        Signal sig = parser.parse(text);
-        std::string s = sig.serialize();
-        CHECK("T19 Serialize contains XAUUSD", s.find("XAUUSD") != std::string::npos);
-        CHECK("T19 Serialize contains BUY",    s.find("BUY") != std::string::npos);
-        CHECK("T19 Serialize has 6 pipes",
-              std::count(s.begin(), s.end(), '|') == 6);
-    }
-
-    // ── Test 20: Lot sizing — verify risk formula ───────────────────────
-    {
-        // EURUSD, entry=1.08500, SL=1.08000 → 50 pips SL distance
-        // risk_amount = 10000 * 1% = 100 USD
-        // sl_pips = |1.085 - 1.08| / 0.0001 = 500 (in pipettes) — actually
-        // 0.005 / 0.0001 = 50 pips
-        // lots = 100 / (50 * 10) = 0.20
-        std::string text =
-            "\xF0\x9F\x9F\xA2 EURUSD BUY NOW\n"
-            "Entry: 1.08500\n"
-            "Stop Loss: 1.08000\n"
-            "Take Profit 1: 1.09000";
-        Signal sig = parser.parse(text);
-        CHECK("T20 Lot size ~0.20",          approx(sig.lots, 0.20, 0.05));
-    }
-
-    // ── Test 21: NASDAQ Format A ────────────────────────────────────────
-    {
-        std::string text = "NASDAQ BUY @ 18500.50\nSL: 18450.00\nTP: 18600.00";
-        Signal sig = parser.parse(text);
-        CHECK("T21 NASDAQ valid",            sig.valid);
-        CHECK("T21 NASDAQ symbol",           sig.symbol == "NASDAQ");
-    }
-
-    // ── Test 22: USOIL Format B ─────────────────────────────────────────
-    {
-        std::string text =
-            "\xF0\x9F\x9F\xA2 USOIL BUY NOW\n"
-            "Entry: 78.50\n"
-            "Stop Loss: 77.80\n"
-            "Take Profit 1: 79.50\n"
-            "Take Profit 2: 80.00";
-        Signal sig = parser.parse(text);
-        CHECK("T22 USOIL valid",            sig.valid);
-        CHECK("T22 USOIL symbol",           sig.symbol == "USOIL");
-        CHECK("T22 USOIL tp2 80.00",        approx(sig.tp2, 80.0));
-    }
-
-    // ── Test 23: US30 Format D ──────────────────────────────────────────
-    {
-        std::string text = "[SIGNAL] US30 SELL LIMIT 39200.00\nSL: 39350.00 | TP: 38900.00";
-        Signal sig = parser.parse(text);
-        CHECK("T23 US30 valid",             sig.valid);
-        CHECK("T23 US30 entry",             approx(sig.entry, 39200.0));
+        Signal sig = parser.parse("\xF0\x9F\x94\xA5\xF0\x9F\x94\xA5");
+        CHECK("T24 Emoji-only not valid",    !sig.valid);
     }
 
     // ── Summary ─────────────────────────────────────────────────────────

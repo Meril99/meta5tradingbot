@@ -1,0 +1,18 @@
+[Unit]
+Description=Telegram Signal Parser — listens to channel and pushes signals via ZMQ
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/telegram-mt5-bot/.env
+Environment=TELETHON_SESSION=/var/lib/telegram-mt5-bot/telegram_session
+WorkingDirectory=/var/lib/telegram-mt5-bot
+ExecStart=/usr/bin/python3 /opt/telegram-mt5-bot/telegram_parser.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

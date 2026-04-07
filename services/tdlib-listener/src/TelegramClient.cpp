@@ -141,16 +141,21 @@ void TelegramClient::process_auth_state() {
 
     switch (auth_state_->get_id()) {
     case td_api::authorizationStateWaitTdlibParameters::ID: {
-        // Provide TDLib with database dir, API credentials, etc.
         auto params = td_api::make_object<td_api::setTdlibParameters>();
-        params->database_directory_      = "tdlib_session";
-        params->use_message_database_    = true;
-        params->use_secret_chats_        = false;
-        params->api_id_                  = std::stoi(api_id_);
-        params->api_hash_                = api_hash_;
-        params->system_language_code_    = "en";
-        params->device_model_            = "Server";
-        params->application_version_     = "1.0";
+        params->use_test_dc_              = false;
+        params->database_directory_       = "tdlib_session";
+        params->files_directory_          = "";
+        params->database_encryption_key_  = "";
+        params->use_file_database_        = true;
+        params->use_chat_info_database_   = true;
+        params->use_message_database_     = true;
+        params->use_secret_chats_         = false;
+        params->api_id_                   = std::stoi(api_id_);
+        params->api_hash_                 = api_hash_;
+        params->system_language_code_     = "en";
+        params->device_model_             = "Server";
+        params->system_version_           = "";
+        params->application_version_      = "1.0";
         send_query(std::move(params), [](auto obj) {
             if (obj->get_id() == td_api::error::ID) {
                 auto err = td_cast<td_api::error>(obj);
@@ -160,6 +165,7 @@ void TelegramClient::process_auth_state() {
         });
         break;
     }
+
     case td_api::authorizationStateWaitPhoneNumber::ID:
         std::cerr << "[TDLIB][INFO] Sending phone number for auth\n";
         send_query(

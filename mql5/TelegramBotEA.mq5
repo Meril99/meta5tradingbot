@@ -239,6 +239,126 @@ void OnDeinit(const int reason)
 }
 
 //+------------------------------------------------------------------+
+//| Close all open positions for a symbol immediately                  |
+//+------------------------------------------------------------------+
+void CloseAllPositions(string symbol)
+{
+    int closed = 0;
+    double total_profit = 0.0;
+    int total = PositionsTotal();
+
+    for(int i = total - 1; i >= 0; i--)
+    {
+        if(!g_position.SelectByIndex(i))
+            continue;
+
+        if(g_position.Magic() != (long)MAGIC_NUM)
+            continue;
+
+        if(g_position.Symbol() != symbol)
+            continue;
+
+        ulong ticket = g_position.Ticket();
+        double lots  = g_position.Volume();
+        double profit = g_position.Profit() + g_position.Swap() + g_position.Commission();
+        string side  = (g_position.PositionType() == POSITION_TYPE_BUY) ? "BUY" : "SELL";
+        double open_price = g_position.PriceOpen();
+
+        if(g_trade.PositionClose(ticket))
+        {
+            Print("[EA][CLOSE] #", ticket, " ", side, " ", symbol,
+                  " lots=", lots, " P&L=", DoubleToString(profit, 2));
+            total_profit += profit;
+            closed++;
+        }
+        else
+        {
+            Print("[EA][CLOSE][FAIL] #", ticket, " Error: ", GetLastError(),
+                  " Retcode: ", g_trade.ResultRetcode());
+        }
+    }
+
+    Print("[EA][CLOSE] Closed ", closed, " position(s) on ", symbol,
+          " Total P&L=", DoubleToString(total_profit, 2));
+
+    if(g_push_connected && closed > 0)
+    {
+        string msg = "EVENT|CLOSEALL|" + symbol + "|0|" +
+                     IntegerToString(closed) + "|0|0|0|" +
+                     DoubleToString(total_profit, 2) + "|0|0|" +
+                     DateTimeToISO(TimeCurrent()) + "||||0|";
+        ZmqMsg zmsg(msg);
+        g_push_socket.send(zmsg);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Move all open positions for a symbol to break-even (SL = entry)   |
+//+------------------------------------------------------------------+
+void MoveAllToBreakeven(string symbol)
+{
+    int moved = 0;
+    int total = PositionsTotal();
+
+    for(int i = total - 1; i >= 0; i--)
+    {
+        if(!g_position.SelectByIndex(i))
+            continue;
+
+        // Only our EA's positions.
+        if(g_position.Magic() != (long)MAGIC_NUM)
+            continue;
+
+        // Match symbol.
+        if(g_position.Symbol() != symbol)
+            continue;
+
+        double open_price = g_position.PriceOpen();
+        double current_sl = g_position.StopLoss();
+        double current_tp = g_position.TakeProfit();
+        ulong  ticket     = g_position.Ticket();
+
+        // Skip if SL is already at or past break-even.
+        bool is_buy = (g_position.PositionType() == POSITION_TYPE_BUY);
+        if(is_buy && current_sl >= open_price && current_sl > 0)
+        {
+            Print("[EA][BE] #", ticket, " already at BE (SL=", current_sl, ")");
+            continue;
+        }
+        if(!is_buy && current_sl <= open_price && current_sl > 0)
+        {
+            Print("[EA][BE] #", ticket, " already at BE (SL=", current_sl, ")");
+            continue;
+        }
+
+        // Modify: set SL = entry price, keep existing TP.
+        if(g_trade.PositionModify(ticket, open_price, current_tp))
+        {
+            Print("[EA][BE] #", ticket, " ", symbol,
+                  " SL moved to break-even: ", open_price);
+            moved++;
+        }
+        else
+        {
+            Print("[EA][BE][FAIL] #", ticket, " Error: ", GetLastError(),
+                  " Retcode: ", g_trade.ResultRetcode());
+        }
+    }
+
+    Print("[EA][BE] Break-even applied to ", moved, " position(s) on ", symbol);
+
+    // Notify via ZMQ.
+    if(g_push_connected && moved > 0)
+    {
+        string msg = "EVENT|BREAKEVEN|" + symbol + "|0|" +
+                     IntegerToString(moved) + "|0|0|0|0|0|0|" +
+                     DateTimeToISO(TimeCurrent()) + "||||0|";
+        ZmqMsg zmsg(msg);
+        g_push_socket.send(zmsg);
+    }
+}
+
+//+------------------------------------------------------------------+
 //| Timer function — polls ZMQ for new signals every 100 ms           |
 //+------------------------------------------------------------------+
 void OnTimer()
@@ -255,9 +375,24 @@ void OnTimer()
     Print("[EA][RECV] ", raw);
 
     // ── Parse pipe-delimited signal ──────────────────────────────────────
-    // Format: SYMBOL|SIDE|entry|sl|tp1|tp2|lots
     string parts[];
     int count = StringSplit(raw, '|', parts);
+
+    // ── CLOSEALL command: CLOSEALL|SYMBOL ──────────────────────────────
+    if(count >= 2 && parts[0] == "CLOSEALL")
+    {
+        CloseAllPositions(parts[1]);
+        return;
+    }
+
+    // ── BREAKEVEN command: BREAKEVEN|SYMBOL ──────────────────────────────
+    if(count >= 2 && parts[0] == "BREAKEVEN")
+    {
+        MoveAllToBreakeven(parts[1]);
+        return;
+    }
+
+    // ── ENTRY signal: SYMBOL|SIDE|entry|sl|tp1|tp2|lots ─────────────────
     if(count < 7)
     {
         Print("[EA][ERROR] Malformed signal (expected 7 fields): ", raw);

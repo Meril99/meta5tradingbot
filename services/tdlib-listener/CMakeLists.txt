@@ -20,7 +20,7 @@ target_include_directories(tdlib-listener PRIVATE
 )
 
 target_link_libraries(tdlib-listener PRIVATE
-    Td::TdClient
+    Td::TdStatic
     ${ZMQ_LIBRARIES}
     pthread
 )

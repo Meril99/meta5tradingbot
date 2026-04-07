@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <curl/curl.h>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 
@@ -121,7 +122,7 @@ std::string TelegramNotifier::format_trade_event(const TradeEvent& ev) {
     // Determine pip size for this symbol (simplified lookup, mirrors parser).
     double pip_sz = 0.0001;  // default forex
     if (ev.symbol.find("JPY") != std::string::npos) pip_sz = 0.01;
-    if (ev.symbol.find("XAU") != std::string::npos) pip_sz = 0.01;
+    if (ev.symbol.find("XAU") != std::string::npos) pip_sz = 0.10;
     if (ev.symbol.find("XAG") != std::string::npos) pip_sz = 0.001;
     if (ev.symbol == "US30")    pip_sz = 1.0;
     if (ev.symbol == "NASDAQ" || ev.symbol == "NAS100") pip_sz = 0.01;
@@ -173,13 +174,19 @@ std::string TelegramNotifier::format_trade_event(const TradeEvent& ev) {
     }
     else if (ev.type == "BREAKEVEN") {
         os << "\xF0\x9F\x94\x84 <b>BREAK EVEN</b>\n\n";
-        os << (ev.side == "BUY" ? "\xF0\x9F\x9F\xA2" : "\xF0\x9F\x94\xB4")
-           << " " << ev.side << " <b>" << ev.symbol << "</b>\n";
-        os << std::setprecision(5);
-        os << "SL moved to entry: " << ev.open_price << "\n";
-        os << "Lots: " << std::setprecision(2) << ev.lots << "\n";
-        os << "\xe2\x8f\xb1 Time in trade: " << format_duration(ev.duration_secs) << "\n";
-        os << "Ticket: #" << ev.ticket;
+        os << "<b>" << ev.symbol << "</b>\n";
+        os << "SL moved to entry on " << ev.ticket << " position(s)\n";
+        if (!ev.open_time.empty())
+            os << "Time: " << ev.open_time;
+    }
+    else if (ev.type == "CLOSEALL") {
+        os << "\xF0\x9F\x9A\xAA <b>ALL POSITIONS CLOSED</b>\n\n";
+        os << "<b>" << ev.symbol << "</b>\n";
+        os << "Closed " << ev.ticket << " position(s)\n";
+        os << std::setprecision(2);
+        os << "Total P&L: <b>$" << ev.profit << "</b>\n";
+        if (!ev.open_time.empty())
+            os << "Time: " << ev.open_time;
     }
     else if (ev.type == "CLOSED") {
         // Manual close or unknown reason.

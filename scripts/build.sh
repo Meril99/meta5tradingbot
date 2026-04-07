@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build.sh — Build all three C++ services using CMake.
+# build.sh — Build mt5-bridge C++ service using CMake.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -18,9 +18,6 @@ cmake --build . -j "$(nproc)"
 
 echo ""
 echo "=== Build complete ==="
-echo "Binaries:"
-echo "  ${BUILD_DIR}/services/tdlib-listener/tdlib-listener"
-echo "  ${BUILD_DIR}/services/signal-parser/signal-parser"
-echo "  ${BUILD_DIR}/services/mt5-bridge/mt5-bridge"
+echo "Binary: ${BUILD_DIR}/services/mt5-bridge/mt5-bridge"
 echo ""
-echo "Next: run ./scripts/install_services.sh to install systemd units."
+echo "Next: run ./scripts/install_services.sh to install services."

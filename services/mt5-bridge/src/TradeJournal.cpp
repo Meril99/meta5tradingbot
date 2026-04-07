@@ -16,7 +16,7 @@
 // ---------------------------------------------------------------------------
 double TradeJournal::pip_size(const std::string& symbol) {
     if (symbol.find("JPY") != std::string::npos) return 0.01;
-    if (symbol.find("XAU") != std::string::npos) return 0.01;
+    if (symbol.find("XAU") != std::string::npos) return 0.10;
     if (symbol.find("XAG") != std::string::npos) return 0.001;
     if (symbol == "US30")    return 1.0;
     if (symbol == "NASDAQ" || symbol == "NAS100") return 0.01;

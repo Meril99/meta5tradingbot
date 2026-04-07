@@ -12,8 +12,10 @@
 #include "TradeJournal.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <ctime>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -37,6 +39,15 @@ std::string require_env(const char* name) {
 std::string optional_env(const char* name) {
     const char* val = std::getenv(name);
     return (val && val[0] != '\0') ? std::string(val) : std::string();
+}
+
+// Current time as ISO-8601 string.
+std::string now_iso() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", std::localtime(&t));
+    return buf;
 }
 }  // namespace
 
@@ -97,14 +108,55 @@ int main() {
         if (items[0].revents & ZMQ_POLLIN) {
             std::string raw = signal_receiver.receive_raw();
             if (!raw.empty()) {
-                ReceivedOrder order = OrderReceiver::deserialize(raw);
-                if (order.valid) {
-                    std::cerr << "[ORDER] " << order.side << " " << order.symbol
-                              << " entry=" << order.entry
-                              << " sl=" << order.sl
-                              << " tp=" << order.tp1
-                              << " lots=" << order.lots << "\n";
-                    OrderReceiver::write_debug_json(order);
+                std::string ts = now_iso();
+
+                // Check for BREAKEVEN or CLOSEALL commands.
+                if (raw.rfind("BREAKEVEN|", 0) == 0) {
+                    std::string symbol = raw.substr(10);
+                    std::cerr << "[SIGNAL][" << ts << "] BREAKEVEN " << symbol << "\n";
+
+                    // Log to journal as a signal event.
+                    TradeEvent be_ev;
+                    be_ev.valid = true;
+                    be_ev.type = "SIGNAL_BREAKEVEN";
+                    be_ev.symbol = symbol;
+                    be_ev.open_time = ts;
+                    journal.record(be_ev);
+                }
+                else if (raw.rfind("CLOSEALL|", 0) == 0) {
+                    std::string symbol = raw.substr(9);
+                    std::cerr << "[SIGNAL][" << ts << "] CLOSEALL " << symbol << "\n";
+
+                    TradeEvent cl_ev;
+                    cl_ev.valid = true;
+                    cl_ev.type = "SIGNAL_CLOSEALL";
+                    cl_ev.symbol = symbol;
+                    cl_ev.open_time = ts;
+                    journal.record(cl_ev);
+                }
+                else {
+                    ReceivedOrder order = OrderReceiver::deserialize(raw);
+                    if (order.valid) {
+                        std::cerr << "[SIGNAL][" << ts << "] ENTRY "
+                                  << order.side << " " << order.symbol
+                                  << " entry=" << order.entry
+                                  << " sl=" << order.sl
+                                  << " tp=" << order.tp1
+                                  << " lots=" << order.lots << "\n";
+                        OrderReceiver::write_debug_json(order);
+
+                        TradeEvent entry_ev;
+                        entry_ev.valid = true;
+                        entry_ev.type = "SIGNAL_ENTRY";
+                        entry_ev.symbol = order.symbol;
+                        entry_ev.side = order.side;
+                        entry_ev.open_price = order.entry;
+                        entry_ev.sl = order.sl;
+                        entry_ev.tp = order.tp1;
+                        entry_ev.lots = order.lots;
+                        entry_ev.open_time = ts;
+                        journal.record(entry_ev);
+                    }
                 }
             }
         }
@@ -115,7 +167,8 @@ int main() {
             if (!raw.empty()) {
                 TradeEvent ev = deserialize_trade_event(raw);
                 if (ev.valid) {
-                    std::cerr << "[EVENT] " << ev.type << " " << ev.side
+                    std::cerr << "[EVENT][" << now_iso() << "] "
+                              << ev.type << " " << ev.side
                               << " " << ev.symbol
                               << " ticket=#" << ev.ticket
                               << " P&L=$" << ev.profit << "\n";

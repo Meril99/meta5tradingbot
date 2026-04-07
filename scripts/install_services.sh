@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install_services.sh — Install binaries and systemd service units.
+# install_services.sh — Install services (Python telegram-parser + C++ mt5-bridge).
 # Run as root or with sudo.
 set -euo pipefail
 
@@ -9,34 +9,41 @@ BUILD_DIR="${PROJECT_DIR}/build"
 
 echo "=== telegram-mt5-bot: Installing services ==="
 
-# ── Copy binaries ─────────────────────────────────────────────────────────────
-echo "[1/4] Installing binaries to /usr/local/bin/..."
-install -m 755 "${BUILD_DIR}/services/tdlib-listener/tdlib-listener" /usr/local/bin/
-install -m 755 "${BUILD_DIR}/services/signal-parser/signal-parser"   /usr/local/bin/
-install -m 755 "${BUILD_DIR}/services/mt5-bridge/mt5-bridge"         /usr/local/bin/
+# ── Stop old services if running ─────────────────────────────────────────────
+echo "[1/5] Stopping old services (if any)..."
+systemctl stop tdlib-listener.service 2>/dev/null || true
+systemctl stop signal-parser.service 2>/dev/null || true
+systemctl stop telegram-parser.service 2>/dev/null || true
+systemctl stop mt5-bridge.service 2>/dev/null || true
+systemctl disable tdlib-listener.service 2>/dev/null || true
+systemctl disable signal-parser.service 2>/dev/null || true
 
-# ── Copy systemd units ───────────────────────────────────────────────────────
-echo "[2/4] Installing systemd unit files..."
-cp "${PROJECT_DIR}/services/tdlib-listener/systemd/tdlib-listener.service" /etc/systemd/system/
-cp "${PROJECT_DIR}/services/signal-parser/systemd/signal-parser.service"   /etc/systemd/system/
-cp "${PROJECT_DIR}/services/mt5-bridge/systemd/mt5-bridge.service"         /etc/systemd/system/
+# ── Install telegram-parser (Python) ────────────────────────────────────────
+echo "[2/5] Installing telegram-parser..."
+mkdir -p /opt/telegram-mt5-bot
+cp "${PROJECT_DIR}/services/telegram-parser/telegram_parser.py" /opt/telegram-mt5-bot/
+pip3 install -q -r "${PROJECT_DIR}/services/telegram-parser/requirements.txt"
 
-# ── Reload and enable ────────────────────────────────────────────────────────
-echo "[3/4] Reloading systemd and enabling services..."
+# ── Install mt5-bridge (C++ binary) ─────────────────────────────────────────
+echo "[3/5] Installing mt5-bridge binary..."
+install -m 755 "${BUILD_DIR}/services/mt5-bridge/mt5-bridge" /usr/local/bin/
+
+# ── Copy systemd units ──────────────────────────────────────────────────────
+echo "[4/5] Installing systemd unit files..."
+cp "${PROJECT_DIR}/services/telegram-parser/systemd/telegram-parser.service" /etc/systemd/system/
+cp "${PROJECT_DIR}/services/mt5-bridge/systemd/mt5-bridge.service" /etc/systemd/system/
+
+# ── Reload, enable, start ────────────────────────────────────────────────────
+echo "[5/5] Reloading systemd and enabling services..."
 systemctl daemon-reload
-systemctl enable tdlib-listener.service
-systemctl enable signal-parser.service
+systemctl enable telegram-parser.service
 systemctl enable mt5-bridge.service
-
-# ── Start ─────────────────────────────────────────────────────────────────────
-echo "[4/4] Starting services..."
-systemctl start tdlib-listener.service
-systemctl start signal-parser.service
+systemctl start telegram-parser.service
 systemctl start mt5-bridge.service
 
 echo ""
 echo "=== Services installed and started ==="
 echo "Check status:"
-echo "  systemctl status tdlib-listener signal-parser mt5-bridge"
+echo "  systemctl status telegram-parser mt5-bridge"
 echo "View logs:"
-echo "  journalctl -u tdlib-listener -u signal-parser -u mt5-bridge -f"
+echo "  journalctl -u telegram-parser -u mt5-bridge -f"
