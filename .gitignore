@@ -1,3 +1,5 @@
+.claude/
+docs/
 build/
 *.o
 *.so
