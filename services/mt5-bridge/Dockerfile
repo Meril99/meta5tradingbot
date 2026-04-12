@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential \
         cmake \
         git \
+        ca-certificates \
         pkg-config \
         libzmq3-dev \
         libcurl4-openssl-dev \
