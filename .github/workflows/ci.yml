@@ -3,8 +3,7 @@
 #
 # Jobs:
 #   lint-python   → Lint the Telegram parser (flake8)
-#   build-cpp     → Build mt5-bridge C++ service (matrix: Ubuntu 22.04/24.04)
-#   test-cpp      → Run C++ unit tests
+#   build-cpp     → Build and test mt5-bridge C++ service
 #   docker-build  → Build & push multi-service Docker images
 #   deploy        → SSH deploy to production server
 # =============================================================================
@@ -39,32 +38,28 @@ jobs:
         run: pip install flake8 -r services/telegram-parser/requirements.txt
 
       - name: Lint telegram-parser
-        run: flake8 services/telegram-parser/ --max-line-length=100 --statistics
+        run: flake8 services/telegram-parser/
 
-  # ── Build C++ (matrix) ───────────────────────────────────────────────────
+  # ── Build & Test C++ ─────────────────────────────────────────────────────
   build-cpp:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        os-version: ["22.04", "24.04"]
-    container:
-      image: ubuntu:${{ matrix.os-version }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
-          apt-get update -y
-          apt-get install -y --no-install-recommends \
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
             build-essential cmake git pkg-config \
-            libzmq3-dev libcurl4-openssl-dev ca-certificates
+            libzmq3-dev libcurl4-openssl-dev
 
       - name: Install cppzmq headers
         run: |
           git clone --depth 1 https://github.com/zeromq/cppzmq.git /tmp/cppzmq
-          cd /tmp/cppzmq && mkdir build && cd build
+          cd /tmp/cppzmq
+          mkdir build && cd build
           cmake .. -DCPPZMQ_BUILD_TESTS=OFF
-          cmake --build . --target install
+          sudo cmake --build . --target install
 
       - name: Build mt5-bridge
         run: |
@@ -77,46 +72,21 @@ jobs:
           ls -lh build/services/mt5-bridge/mt5-bridge
           file build/services/mt5-bridge/mt5-bridge
 
+      - name: Run tests
+        run: |
+          cd build
+          if [ -f test_parser ]; then ./test_parser; fi
+
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mt5-bridge-ubuntu-${{ matrix.os-version }}
+          name: mt5-bridge
           path: build/services/mt5-bridge/mt5-bridge
           retention-days: 14
 
-  # ── C++ Unit Tests ────────────────────────────────────────────────────────
-  test-cpp:
-    needs: build-cpp
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          apt-get update -y
-          apt-get install -y --no-install-recommends \
-            build-essential cmake git pkg-config \
-            libzmq3-dev libcurl4-openssl-dev ca-certificates
-
-      - name: Install cppzmq
-        run: |
-          git clone --depth 1 https://github.com/zeromq/cppzmq.git /tmp/cppzmq
-          cd /tmp/cppzmq && mkdir build && cd build
-          cmake .. -DCPPZMQ_BUILD_TESTS=OFF
-          cmake --build . --target install
-
-      - name: Build and run tests
-        run: |
-          mkdir -p build && cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Debug
-          cmake --build . -j "$(nproc)"
-          if [ -f test_parser ]; then ./test_parser; fi
-
   # ── Docker Build & Push ───────────────────────────────────────────────────
   docker-build:
-    needs: [lint-python, test-cpp]
+    needs: [lint-python, build-cpp]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
