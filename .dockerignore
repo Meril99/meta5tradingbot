@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+.idea/
+__pycache__/
+*.pyc
+build/
+*.md
+tdlib_session/
+*.session
+trade_journal.csv
+legacy/

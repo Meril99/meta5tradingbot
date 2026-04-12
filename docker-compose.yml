@@ -1,0 +1,72 @@
+# =============================================================================
+# Docker Compose — Telegram MT5 Copy-Trading Bot
+#
+# Services:
+#   telegram-parser   — Python: listens to Telegram, parses signals, pushes ZMQ
+#   mt5-bridge        — C++:    receives trade events, logs CSV, sends alerts
+#
+# The MQL5 EA runs inside MetaTrader 5 (not containerized).
+# ZMQ communication: parser → EA (port 5556), EA → bridge (port 5557)
+#
+# Usage:
+#   docker compose up -d                    # Start both services
+#   docker compose logs -f telegram-parser  # Follow parser logs
+#   docker compose down                     # Stop everything
+# =============================================================================
+
+services:
+  telegram-parser:
+    build:
+      context: .
+      dockerfile: services/telegram-parser/Dockerfile
+    container_name: telegram-parser
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - ZMQ_PARSER_PORT=${ZMQ_PARSER_PORT:-5556}
+      - TELETHON_SESSION=/data/telegram_session
+    ports:
+      - "${ZMQ_PARSER_PORT:-5556}:${ZMQ_PARSER_PORT:-5556}"
+    volumes:
+      - parser-data:/data
+    networks:
+      - mt5-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  mt5-bridge:
+    build:
+      context: .
+      dockerfile: services/mt5-bridge/Dockerfile
+    container_name: mt5-bridge
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - ZMQ_EVENT_PORT=${ZMQ_EVENT_PORT:-5557}
+      - TRADE_JOURNAL_PATH=/data/trade_journal.csv
+    ports:
+      - "${ZMQ_EVENT_PORT:-5557}:${ZMQ_EVENT_PORT:-5557}"
+    volumes:
+      - bridge-data:/data
+    networks:
+      - mt5-net
+    depends_on:
+      - telegram-parser
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+volumes:
+  parser-data:
+    driver: local
+  bridge-data:
+    driver: local
+
+networks:
+  mt5-net:
+    driver: bridge

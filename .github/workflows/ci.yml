@@ -1,0 +1,176 @@
+# =============================================================================
+# GitHub Actions CI/CD — Telegram MT5 Copy-Trading Bot
+#
+# Jobs:
+#   lint-python   → Lint the Telegram parser (flake8)
+#   build-cpp     → Build mt5-bridge C++ service (matrix: Ubuntu 22.04/24.04)
+#   test-cpp      → Run C++ unit tests
+#   docker-build  → Build & push multi-service Docker images
+#   deploy        → SSH deploy to production server
+# =============================================================================
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  release:
+    types: [published]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository_owner }}/meta5bot
+
+jobs:
+  # ── Lint Python ───────────────────────────────────────────────────────────
+  lint-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install flake8 -r services/telegram-parser/requirements.txt
+
+      - name: Lint telegram-parser
+        run: flake8 services/telegram-parser/ --max-line-length=100 --statistics
+
+  # ── Build C++ (matrix) ───────────────────────────────────────────────────
+  build-cpp:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os-version: ["22.04", "24.04"]
+    container:
+      image: ubuntu:${{ matrix.os-version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          apt-get update -y
+          apt-get install -y --no-install-recommends \
+            build-essential cmake git pkg-config \
+            libzmq3-dev libcurl4-openssl-dev ca-certificates
+
+      - name: Install cppzmq headers
+        run: |
+          git clone --depth 1 https://github.com/zeromq/cppzmq.git /tmp/cppzmq
+          cd /tmp/cppzmq && mkdir build && cd build
+          cmake .. -DCPPZMQ_BUILD_TESTS=OFF
+          cmake --build . --target install
+
+      - name: Build mt5-bridge
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          cmake --build . -j "$(nproc)"
+
+      - name: Verify binary
+        run: |
+          ls -lh build/services/mt5-bridge/mt5-bridge
+          file build/services/mt5-bridge/mt5-bridge
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mt5-bridge-ubuntu-${{ matrix.os-version }}
+          path: build/services/mt5-bridge/mt5-bridge
+          retention-days: 14
+
+  # ── C++ Unit Tests ────────────────────────────────────────────────────────
+  test-cpp:
+    needs: build-cpp
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update -y
+          apt-get install -y --no-install-recommends \
+            build-essential cmake git pkg-config \
+            libzmq3-dev libcurl4-openssl-dev ca-certificates
+
+      - name: Install cppzmq
+        run: |
+          git clone --depth 1 https://github.com/zeromq/cppzmq.git /tmp/cppzmq
+          cd /tmp/cppzmq && mkdir build && cd build
+          cmake .. -DCPPZMQ_BUILD_TESTS=OFF
+          cmake --build . --target install
+
+      - name: Build and run tests
+        run: |
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Debug
+          cmake --build . -j "$(nproc)"
+          if [ -f test_parser ]; then ./test_parser; fi
+
+  # ── Docker Build & Push ───────────────────────────────────────────────────
+  docker-build:
+    needs: [lint-python, test-cpp]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        service:
+          - name: telegram-parser
+            dockerfile: services/telegram-parser/Dockerfile
+          - name: mt5-bridge
+            dockerfile: services/mt5-bridge/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.service.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.service.name }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── Deploy ────────────────────────────────────────────────────────────────
+  deploy:
+    needs: docker-build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    environment:
+      name: production
+    steps:
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /opt/telegram-mt5-bot
+            docker compose pull
+            docker compose up -d --force-recreate
+            docker compose ps
+            echo "Deployed version: ${{ github.sha }}"
